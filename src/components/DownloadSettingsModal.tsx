@@ -1,0 +1,377 @@
+import React, { useState } from 'react';
+import { GridDownloadOptions } from '../types/downloadTypes';
+
+// 定义可选的网格线颜色
+const gridLineColorOptions = [
+  { name: '深灰色', value: '#555555' },
+  { name: '红色', value: '#FF0000' },
+  { name: '蓝色', value: '#0000FF' },
+  { name: '绿色', value: '#008000' },
+  { name: '紫色', value: '#800080' },
+  { name: '橙色', value: '#FFA500' },
+];
+
+interface DownloadSettingsModalProps {
+  isOpen: boolean;
+  onClose: () => void;
+  options: GridDownloadOptions;
+  onOptionsChange: (options: GridDownloadOptions) => void;
+  onDownload: (opts?: GridDownloadOptions) => void;
+  onSaveToHistory?: (name: string) => void;
+  canSaveToHistory?: boolean;
+}
+
+const DownloadSettingsModal: React.FC<DownloadSettingsModalProps> = ({
+  isOpen,
+  onClose,
+  options,
+  onOptionsChange,
+  onDownload,
+  onSaveToHistory,
+  canSaveToHistory = true
+}) => {
+  const [tempOptions, setTempOptions] = useState<GridDownloadOptions>({...options});
+  const [showNameModal, setShowNameModal] = useState(false);
+  const [customName, setCustomName] = useState('图纸');
+
+  if (!isOpen) return null;
+
+  const handleOptionChange = (key: keyof GridDownloadOptions, value: string | number | boolean) => {
+    setTempOptions((prev: GridDownloadOptions) => ({
+      ...prev,
+      [key]: value
+    }));
+  };
+
+  const handleSave = () => {
+    onOptionsChange(tempOptions);
+    onDownload(tempOptions);
+    onClose();
+  };
+
+  const handleSaveClick = () => {
+    setCustomName('图纸');
+    setShowNameModal(true);
+  };
+
+  const handleConfirmSave = () => {
+    if (onSaveToHistory) {
+      onSaveToHistory(customName.trim() || '图纸');
+    }
+    setShowNameModal(false);
+    onClose();
+  };
+
+  return (
+    <div className="fixed inset-0 bg-black/60 backdrop-blur-md flex items-center justify-center z-50 p-4">
+      <div className="bg-white dark:bg-gray-800 rounded-2xl shadow-2xl overflow-hidden w-full max-w-md mx-auto animate-in fade-in zoom-in duration-200 sm:max-w-md">
+        <div className="p-4 sm:p-6">
+          <div className="flex justify-between items-center border-b border-gray-100 dark:border-gray-700 pb-3 sm:pb-4 mb-4 sm:mb-5">
+            <h3 className="text-lg sm:text-xl font-bold text-gray-900 dark:text-gray-100">下载图纸设置</h3>
+            <button
+              onClick={onClose}
+              className="text-gray-400 hover:text-gray-600 dark:hover:text-gray-200 transition-colors p-1 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-700"
+            >
+              <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5 sm:h-6 sm:w-6" viewBox="0 0 20 20" fill="currentColor">
+                <path fillRule="evenodd" d="M4.293 4.293a1 1 0 011.414 0L10 8.586l4.293-4.293a1 1 0 111.414 1.414L11.414 10l4.293 4.293a1 1 0 01-1.414 1.414L10 11.414l-4.293 4.293a1 1 0 01-1.414-1.414L8.586 10 4.293 5.707a1 1 0 010-1.414z" clipRule="evenodd" />
+              </svg>
+            </button>
+          </div>
+
+          <div className="space-y-3 sm:space-y-5">
+            {/* 显示网格线选项 */}
+            <div className="flex items-center justify-between">
+              <label className="flex items-center text-xs sm:text-sm font-medium text-gray-700 dark:text-gray-300">
+                显示网格线
+              </label>
+              <label className="relative inline-flex items-center cursor-pointer">
+                <input
+                  type="checkbox"
+                  className="sr-only peer"
+                  checked={tempOptions.showGrid}
+                  onChange={(e) => handleOptionChange('showGrid', e.target.checked)}
+                />
+                <div className="w-9 h-5 sm:w-11 sm:h-6 bg-gray-200 peer-focus:outline-none rounded-full peer dark:bg-gray-700 peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-4 after:w-4 sm:after:h-5 sm:after:w-5 after:transition-all peer-checked:bg-blue-600"></div>
+              </label>
+            </div>
+
+            {/* 网格线设置 */}
+            {tempOptions.showGrid && (
+              <div className="space-y-3 sm:space-y-4 pl-3 sm:pl-4 border-l-2 border-blue-200 dark:border-blue-800 ml-2 pt-3 pb-2 bg-gradient-to-r from-blue-50/50 to-transparent dark:from-blue-900/10 -mx-2 px-3 sm:px-4 rounded-r-lg">
+                <div className="flex flex-col space-y-2">
+                  <label className="text-xs sm:text-sm font-medium text-gray-700 dark:text-gray-300">
+                    网格线间隔 (每 N 格画一条线)
+                  </label>
+                  <div className="flex items-center justify-between space-x-2 sm:space-x-3">
+                    <input
+                      type="range"
+                      min="5"
+                      max="20"
+                      step="1"
+                      value={tempOptions.gridInterval}
+                      onChange={(e) => handleOptionChange('gridInterval', parseInt(e.target.value))}
+                      className="w-full h-2 bg-gray-200 rounded-lg appearance-none cursor-pointer dark:bg-gray-700"
+                    />
+                    <span className="flex items-center justify-center min-w-[32px] sm:min-w-[40px] text-xs sm:text-sm font-medium text-gray-900 dark:text-gray-100">
+                      {tempOptions.gridInterval}
+                    </span>
+                  </div>
+                </div>
+
+                <div className="flex flex-col space-y-2">
+                  <label className="text-xs sm:text-sm font-medium text-gray-700 dark:text-gray-300">
+                    网格线颜色
+                  </label>
+                  <div className="flex flex-wrap gap-1.5 sm:gap-2">
+                    {gridLineColorOptions.map(colorOpt => (
+                      <button
+                        key={colorOpt.value}
+                        type="button"
+                        onClick={() => handleOptionChange('gridLineColor', colorOpt.value)}
+                        className={`w-7 h-7 sm:w-8 sm:h-8 rounded-lg border-2 transition-all duration-150 flex items-center justify-center
+                                    ${tempOptions.gridLineColor === colorOpt.value
+                                      ? 'border-blue-500 ring-2 ring-blue-500 ring-offset-1 dark:ring-offset-gray-800 scale-110'
+                                      : 'border-gray-300 dark:border-gray-600 hover:border-gray-400 dark:hover:border-gray-500 hover:scale-105'}`}
+                        title={colorOpt.name}
+                      >
+                        <span
+                          className="block w-4 h-4 sm:w-5 sm:h-5 rounded-md"
+                          style={{ backgroundColor: colorOpt.value }}
+                        ></span>
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              </div>
+            )}
+
+            {/* 显示坐标选项 */}
+            <div className="flex items-center justify-between">
+              <label className="flex items-center text-xs sm:text-sm font-medium text-gray-700 dark:text-gray-300">
+                显示坐标色号
+              </label>
+              <label className="relative inline-flex items-center cursor-pointer">
+                <input
+                  type="checkbox"
+                  className="sr-only peer"
+                  checked={tempOptions.showCoordinates}
+                  onChange={(e) => handleOptionChange('showCoordinates', e.target.checked)}
+                />
+                <div className="w-9 h-5 sm:w-11 sm:h-6 bg-gray-200 peer-focus:outline-none rounded-full peer dark:bg-gray-700 peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-4 after:w-4 sm:after:h-5 sm:after:w-5 after:transition-all peer-checked:bg-blue-600"></div>
+              </label>
+            </div>
+
+            {/* 隐藏格内色号选项 */}
+            <div className="flex items-center justify-between">
+              <label className="flex items-center text-xs sm:text-sm font-medium text-gray-700 dark:text-gray-300">
+                隐藏色号
+              </label>
+              <label className="relative inline-flex items-center cursor-pointer">
+                <input
+                  type="checkbox"
+                  className="sr-only peer"
+                  checked={!tempOptions.showCellNumbers}
+                  onChange={(e) => handleOptionChange('showCellNumbers', !e.target.checked)}
+                />
+                <div className="w-9 h-5 sm:w-11 sm:h-6 bg-gray-200 peer-focus:outline-none rounded-full peer dark:bg-gray-700 peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-4 after:w-4 sm:after:h-5 sm:after:w-5 after:transition-all peer-checked:bg-blue-600"></div>
+              </label>
+            </div>
+
+            {/* 显示色号统计 */}
+            <div className="flex items-center justify-between">
+              <label className="flex items-center text-xs sm:text-sm font-medium text-gray-700 dark:text-gray-300">
+                显示色号统计
+              </label>
+              <label className="relative inline-flex items-center cursor-pointer">
+                <input
+                  type="checkbox"
+                  className="sr-only peer"
+                  checked={tempOptions.includeStats}
+                  onChange={(e) => handleOptionChange('includeStats', e.target.checked)}
+                />
+                <div className="w-9 h-5 sm:w-11 sm:h-6 bg-gray-200 peer-focus:outline-none rounded-full peer dark:bg-gray-700 peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-4 after:w-4 sm:after:h-5 sm:after:w-5 after:transition-all peer-checked:bg-blue-600"></div>
+              </label>
+            </div>
+
+            {/* 色块大小选择 */}
+            {tempOptions.includeStats && (
+              <div className="flex flex-col space-y-2">
+                <label className="text-xs sm:text-sm font-medium text-gray-700 dark:text-gray-300">
+                  色块大小
+                </label>
+                <div className="flex space-x-2">
+                  <button
+                    type="button"
+                    onClick={() => handleOptionChange('statsBlockSize', 'large')}
+                    className={`flex-1 px-4 py-2 rounded-xl text-xs sm:text-sm font-medium transition-all ${
+                      tempOptions.statsBlockSize === 'large'
+                        ? 'bg-blue-600 text-white shadow-md'
+                        : 'bg-gray-100 dark:bg-gray-700 text-gray-700 dark:text-gray-300 hover:bg-gray-200 dark:hover:bg-gray-600'
+                    }`}
+                  >
+                    大色块
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => handleOptionChange('statsBlockSize', 'small')}
+                    className={`flex-1 px-4 py-2 rounded-xl text-xs sm:text-sm font-medium transition-all ${
+                      tempOptions.statsBlockSize === 'small'
+                        ? 'bg-blue-600 text-white shadow-md'
+                        : 'bg-gray-100 dark:bg-gray-700 text-gray-700 dark:text-gray-300 hover:bg-gray-200 dark:hover:bg-gray-600'
+                    }`}
+                  >
+                    小色块
+                  </button>
+                </div>
+              </div>
+            )}
+
+            {/* 作品作者署名 */}
+            <div className="flex flex-col space-y-2">
+              <label className="text-xs sm:text-sm font-medium text-gray-700 dark:text-gray-300">
+                作品作者署名
+              </label>
+              <input
+                type="text"
+                placeholder="请输入作者名称"
+                value={tempOptions.authorName}
+                onChange={(e) => handleOptionChange('authorName', e.target.value)}
+                className="w-full px-3 py-2 sm:px-4 sm:py-2.5 text-xs sm:text-sm border border-gray-300 dark:border-gray-600 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent dark:bg-gray-700 dark:text-gray-100 transition-all"
+              />
+            </div>
+
+            {/* 禁止使用水印 */}
+            <div className="flex items-center justify-between">
+              <label className="flex items-center text-xs sm:text-sm font-medium text-gray-700 dark:text-gray-300">
+                禁止使用水印
+              </label>
+              <label className="relative inline-flex items-center cursor-pointer">
+                <input
+                  type="checkbox"
+                  className="sr-only peer"
+                  checked={tempOptions.enableWatermark}
+                  onChange={(e) => {
+                    const enabled = e.target.checked;
+                    setTempOptions((prev: GridDownloadOptions) => ({
+                      ...prev,
+                      enableWatermark: enabled,
+                      watermarkOptions: enabled ? {
+                        commercial: true,
+                        repost: true,
+                        reprint: true,
+                        modify: true
+                      } : {
+                        commercial: false,
+                        repost: false,
+                        reprint: false,
+                        modify: false
+                      }
+                    }));
+                  }}
+                />
+                <div className="w-9 h-5 sm:w-11 sm:h-6 bg-gray-200 peer-focus:outline-none rounded-full peer dark:bg-gray-700 peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-4 after:w-4 sm:after:h-5 sm:after:w-5 after:transition-all peer-checked:bg-blue-600"></div>
+              </label>
+            </div>
+
+            {/* 水印选项 */}
+            {tempOptions.enableWatermark && (
+              <div className="space-y-2.5 sm:space-y-3 pl-3 sm:pl-4 border-l-2 border-red-200 dark:border-red-800 ml-2 pt-3 pb-2 bg-gradient-to-r from-red-50/50 to-transparent dark:from-red-900/10 -mx-2 px-3 sm:px-4 rounded-r-lg">
+                {[
+                  { key: 'commercial' as const, label: '禁止商用' },
+                  { key: 'repost' as const, label: '禁止二传' },
+                  { key: 'reprint' as const, label: '禁止转载' },
+                  { key: 'modify' as const, label: '禁止二改' }
+                ].map(option => (
+                  <div key={option.key} className="flex items-center justify-between">
+                    <label className="flex items-center text-xs sm:text-sm font-medium text-gray-700 dark:text-gray-300">
+                      {option.label}
+                    </label>
+                    <label className="relative inline-flex items-center cursor-pointer">
+                      <input
+                        type="checkbox"
+                        className="sr-only peer"
+                        checked={tempOptions.watermarkOptions[option.key]}
+                        onChange={(e) => setTempOptions((prev: GridDownloadOptions) => ({
+                          ...prev,
+                          watermarkOptions: {
+                            ...prev.watermarkOptions,
+                            [option.key]: e.target.checked
+                          }
+                        }))}
+                      />
+                      <div className="w-9 h-5 bg-gray-200 peer-focus:outline-none rounded-full peer dark:bg-gray-700 peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:bg-red-500"></div>
+                    </label>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+
+          <div className="flex justify-end items-center mt-5 sm:mt-7 pt-4 sm:pt-5 border-t border-gray-100 dark:border-gray-700 space-x-2 sm:space-x-3">
+            <button
+              onClick={onClose}
+              className="px-4 py-2 sm:px-5 sm:py-2.5 bg-gray-100 hover:bg-gray-200 dark:bg-gray-700 dark:hover:bg-gray-600 text-gray-700 dark:text-gray-200 rounded-xl font-medium transition-all duration-200 hover:shadow-sm text-xs sm:text-sm"
+            >
+              取消
+            </button>
+            <button
+              onClick={handleSaveClick}
+              disabled={!canSaveToHistory}
+              className="px-3 py-2 sm:px-4 sm:py-2.5 bg-gradient-to-r from-orange-400 to-pink-500 hover:from-orange-500 hover:to-pink-600 text-white rounded-xl font-medium transition-all duration-200 hover:shadow-md hover:-translate-y-0.5 text-xs sm:text-sm disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:translate-y-0"
+            >
+              保存图纸
+            </button>
+            <button
+              onClick={handleSave}
+              className="px-4 py-2 sm:px-5 sm:py-2.5 bg-gradient-to-r from-blue-500 to-blue-600 hover:from-blue-600 hover:to-blue-700 text-white rounded-xl font-medium transition-all duration-200 hover:shadow-md hover:shadow-blue-500/30 hover:-translate-y-0.5 text-xs sm:text-sm"
+            >
+              下载图纸
+            </button>
+          </div>
+        </div>
+      </div>
+
+      {/* 自定义名称输入弹窗 */}
+      {showNameModal && (
+        <div className="fixed inset-0 bg-black/50 backdrop-blur-sm z-[60] flex items-center justify-center p-4">
+          <div className="bg-white dark:bg-gray-800 rounded-2xl shadow-2xl w-full max-w-sm overflow-hidden">
+            <div className="p-5">
+              <h3 className="text-lg font-bold text-gray-800 dark:text-gray-200 mb-4">保存图纸</h3>
+              <p className="text-sm text-gray-500 dark:text-gray-400 mb-3">请输入图纸名称：</p>
+              <input
+                type="text"
+                value={customName}
+                onChange={(e) => setCustomName(e.target.value)}
+                placeholder="图纸名称"
+                className="w-full px-4 py-3 text-sm border border-gray-300 dark:border-gray-600 rounded-xl focus:outline-none focus:ring-2 focus:ring-orange-400 focus:border-transparent dark:bg-gray-700 dark:text-gray-100 transition-all"
+                autoFocus
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter') {
+                    handleConfirmSave();
+                  }
+                }}
+              />
+              <div className="flex gap-3 mt-5">
+                <button
+                  onClick={() => setShowNameModal(false)}
+                  className="flex-1 px-4 py-2.5 bg-gray-100 hover:bg-gray-200 dark:bg-gray-700 dark:hover:bg-gray-600 text-gray-700 dark:text-gray-200 rounded-xl font-medium transition-all text-sm"
+                >
+                  取消
+                </button>
+                <button
+                  onClick={handleConfirmSave}
+                  className="flex-1 px-4 py-2.5 bg-gradient-to-r from-orange-400 to-pink-500 hover:from-orange-500 hover:to-pink-600 text-white rounded-xl font-medium transition-all text-sm"
+                >
+                  保存
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+};
+
+export default DownloadSettingsModal;
+export { gridLineColorOptions };

@@ -1,0 +1,732 @@
+import { GridDownloadOptions } from '../types/downloadTypes';
+import { MappedPixel, PaletteColor } from './pixelation';
+import { getDisplayColorKey, getColorKeyByHex, ColorSystem } from './colorSystemUtils';
+
+// iOS 设备检测
+function isIOS(): boolean {
+  if (typeof window === 'undefined') return false;
+  return /iPad|iPhone|iPod/.test(navigator.userAgent) || 
+    (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
+}
+
+// iOS canvas 最大尺寸限制（保守估计，避免内存问题）
+const IOS_MAX_CANVAS_DIMENSION = 3000;
+const IOS_MAX_CANVAS_AREA = 9000000; // 约 9MB 像素，更保守
+
+// 用于获取对比色的工具函数 - 从page.tsx复制
+function getContrastColor(hex: string): string {
+  const rgb = hexToRgb(hex);
+  if (!rgb) return '#000000'; // Default to black
+  // Simple brightness check (Luma formula Y = 0.2126 R + 0.7152 G + 0.0722 B)
+  const luma = (0.2126 * rgb.r + 0.7152 * rgb.g + 0.0722 * rgb.b) / 255;
+  return luma > 0.5 ? '#000000' : '#FFFFFF'; // Dark background -> white text, Light background -> black text
+}
+
+// 辅助函数：将十六进制颜色转换为RGB
+function hexToRgb(hex: string): { r: number; g: number; b: number } | null {
+  const shorthandRegex = /^#?([a-f\d])([a-f\d])([a-f\d])$/i;
+  const formattedHex = hex.replace(shorthandRegex, (m, r, g, b) => r + r + g + g + b + b);
+  const result = /^#?([a-f\d]{2})([a-f\d]{2})([a-f\d]{2})$/i.exec(formattedHex);
+  return result
+    ? {
+        r: parseInt(result[1], 16),
+        g: parseInt(result[2], 16),
+        b: parseInt(result[3], 16),
+      }
+    : null;
+}
+
+// 用于排序颜色键的函数 - 从page.tsx复制
+function sortColorKeys(a: string, b: string): number {
+  const regex = /^([A-Z]+)(\d+)$/;
+  const matchA = a.match(regex);
+  const matchB = b.match(regex);
+
+  if (matchA && matchB) {
+    const prefixA = matchA[1];
+    const numA = parseInt(matchA[2], 10);
+    const prefixB = matchB[1];
+    const numB = parseInt(matchB[2], 10);
+
+    if (prefixA !== prefixB) {
+      return prefixA.localeCompare(prefixB); // Sort by prefix first (A, B, C...)
+    }
+    return numA - numB; // Then sort by number (1, 2, 10...)
+  }
+  // Fallback for keys that don't match the standard pattern (e.g., T1, ZG1)
+  return a.localeCompare(b);
+}
+
+// 导出CSV hex数据的函数
+export function exportCsvData({
+  mappedPixelData,
+  gridDimensions,
+  selectedColorSystem
+}: {
+  mappedPixelData: MappedPixel[][] | null;
+  gridDimensions: { N: number; M: number } | null;
+  selectedColorSystem: ColorSystem;
+}): void {
+  if (!mappedPixelData || !gridDimensions) {
+    console.error("导出失败: 映射数据或尺寸无效。");
+    alert("无法导出CSV，数据未生成或无效。");
+    return;
+  }
+
+  const { N, M } = gridDimensions;
+  
+  // 生成CSV内容，每行代表图纸的一行
+  const csvLines: string[] = [];
+  
+  for (let row = 0; row < M; row++) {
+    const rowData: string[] = [];
+    for (let col = 0; col < N; col++) {
+      const cellData = mappedPixelData[row][col];
+      if (cellData && !cellData.isExternal) {
+        // 内部单元格，优先使用色号（cellData.key），fallback 到 HEX
+        const colorCode = cellData.key && !cellData.key.startsWith('#') 
+          ? cellData.key 
+          : cellData.color;
+        rowData.push(colorCode);
+      } else {
+        // 外部单元格或空白，使用特殊标记
+        rowData.push('TRANSPARENT');
+      }
+    }
+    csvLines.push(rowData.join(','));
+  }
+
+  // 创建CSV内容
+  const csvContent = csvLines.join('\n');
+  
+  // 创建并下载CSV文件
+  const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+  const link = document.createElement('a');
+  const url = URL.createObjectURL(blob);
+  
+  link.setAttribute('href', url);
+  link.setAttribute('download', `bead-pattern-${N}x${M}-${selectedColorSystem}.csv`);
+  link.style.visibility = 'hidden';
+  
+  document.body.appendChild(link);
+  link.click();
+  document.body.removeChild(link);
+  
+  // 释放URL对象
+  URL.revokeObjectURL(url);
+  
+  console.log("CSV数据导出完成");
+}
+
+// 导入CSV hex数据的函数
+export function importCsvData(file: File): Promise<{
+  mappedPixelData: MappedPixel[][];
+  gridDimensions: { N: number; M: number };
+}> {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    
+    reader.onload = (e) => {
+      try {
+        const text = e.target?.result as string;
+        if (!text) {
+          reject(new Error('无法读取文件内容'));
+          return;
+        }
+        
+        // 解析CSV内容
+        const lines = text.trim().split('\n');
+        const M = lines.length; // 行数
+        
+        if (M === 0) {
+          reject(new Error('CSV文件为空'));
+          return;
+        }
+        
+        // 解析第一行获取列数
+        const firstRowData = lines[0].split(',');
+        const N = firstRowData.length; // 列数
+        
+        if (N === 0) {
+          reject(new Error('CSV文件格式无效'));
+          return;
+        }
+        
+        // 创建映射数据
+        const mappedPixelData: MappedPixel[][] = [];
+        
+        for (let row = 0; row < M; row++) {
+          const rowData = lines[row].split(',');
+          const mappedRow: MappedPixel[] = [];
+          
+          // 确保每行都有正确的列数
+          if (rowData.length !== N) {
+            reject(new Error(`第${row + 1}行的列数不匹配，期望${N}列，实际${rowData.length}列`));
+            return;
+          }
+          
+          for (let col = 0; col < N; col++) {
+            const cellValue = rowData[col].trim();
+            
+            if (cellValue === 'TRANSPARENT' || cellValue === '') {
+              // 外部/透明单元格
+              mappedRow.push({
+                key: 'TRANSPARENT',
+                color: '#FFFFFF',
+                isExternal: true
+              });
+            } else {
+              // 验证hex颜色格式
+              const hexPattern = /^#[0-9A-Fa-f]{6}$/;
+              if (!hexPattern.test(cellValue)) {
+                reject(new Error(`第${row + 1}行第${col + 1}列的颜色值无效：${cellValue}`));
+                return;
+              }
+              
+              // 内部单元格
+              mappedRow.push({
+                key: cellValue.toUpperCase(),
+                color: cellValue.toUpperCase(),
+                isExternal: false
+              });
+            }
+          }
+          
+          mappedPixelData.push(mappedRow);
+        }
+        
+        // 返回解析结果
+        resolve({
+          mappedPixelData,
+          gridDimensions: { N, M }
+        });
+        
+      } catch (error) {
+        reject(new Error(`解析CSV文件失败：${error}`));
+      }
+    };
+    
+    reader.onerror = () => {
+      reject(new Error('读取文件失败'));
+    };
+    
+    reader.readAsText(file, 'utf-8');
+  });
+}
+
+// 下载图片的主函数
+export async function downloadImage({
+  mappedPixelData,
+  gridDimensions,
+  colorCounts,
+  totalBeadCount,
+  options,
+  activeBeadPalette,
+  selectedColorSystem
+}: {
+  mappedPixelData: MappedPixel[][] | null;
+  gridDimensions: { N: number; M: number } | null;
+  colorCounts: { [key: string]: { count: number; color: string } } | null;
+  totalBeadCount: number;
+  options: GridDownloadOptions;
+  activeBeadPalette: PaletteColor[];
+  selectedColorSystem: ColorSystem;
+}): Promise<void> {
+  if (!mappedPixelData || !gridDimensions || gridDimensions.N === 0 || gridDimensions.M === 0 || activeBeadPalette.length === 0) {
+    console.error("下载失败: 映射数据或尺寸无效。");
+    alert("无法下载图纸，数据未生成或无效。");
+    return;
+  }
+  if (!colorCounts) {
+    console.error("下载失败: 色号统计数据无效。");
+    alert("无法下载图纸，色号统计数据未生成或无效。");
+    return;
+  }
+
+  // 主要下载处理函数
+  const processDownload = () => {
+    const { N, M } = gridDimensions; // 此时已确保gridDimensions不为null
+    let downloadCellSize = 30;
+  
+    // iOS 和安卓统一使用相同的单元格大小，不再降低清晰度
+    // 移除了 iOS 设备降低单元格大小的限制逻辑
+  
+    // 从下载选项中获取设置
+    const { showGrid, gridInterval, showCoordinates, gridLineColor, includeStats, showCellNumbers = true } = options;
+  
+    // 设置边距空间用于坐标轴标注（如果需要）
+    const axisLabelSize = showCoordinates ? Math.max(30, Math.floor(downloadCellSize)) : 0;
+    
+    // 定义统计区域的基本参数
+    const statsPadding = 20;
+    let statsHeight = 0;
+    
+    // 预先计算用于字体大小的变量
+    const preCalcWidth = N * downloadCellSize + axisLabelSize;
+    const preCalcAvailableWidth = preCalcWidth - (statsPadding * 2);
+    
+    // 计算字体大小 - 与颜色统计区域保持一致
+    const baseStatsFontSize = 13;
+    const widthFactor = Math.max(0, preCalcAvailableWidth - 350) / 600;
+    const statsFontSize = Math.floor(baseStatsFontSize + (widthFactor * 10));
+    
+    // 计算额外边距，确保坐标数字完全显示（四边都需要）
+    const extraLeftMargin = showCoordinates ? Math.max(20, statsFontSize * 2) : 0; // 左侧额外边距
+    const extraRightMargin = showCoordinates ? Math.max(20, statsFontSize * 2) : 0; // 右侧额外边距
+    const extraTopMargin = showCoordinates ? Math.max(15, statsFontSize) : 0; // 顶部额外边距
+    const extraBottomMargin = showCoordinates ? Math.max(15, statsFontSize) : 0; // 底部额外边距
+    
+    // 计算网格尺寸
+    const gridWidth = N * downloadCellSize;
+    const gridHeight = M * downloadCellSize;
+    
+    // 计算小红书标识区域的高度
+    const xiaohongshuAreaHeight = 35; // 为小红书名字预留的底部空间
+
+    // 标题区域高度（只用于显示文字，无条幅）
+    const titleBarHeight = 80; // 适应56px字体
+
+    // 计算二维码大小（不再使用）
+    // const qrSize = Math.floor(titleBarHeight * 0.85);
+    
+    // 计算统计区域的大小
+    if (includeStats && colorCounts) {
+      const colorKeys = Object.keys(colorCounts);
+
+      // 统计区域顶部额外间距
+      const statsTopMargin = 24; // 与下方渲染时保持一致
+
+      // 根据色块大小选择列数
+      const numColumns = options.statsBlockSize === 'large' ? 8 : 16;
+
+      // 使用更大的色块尺寸
+      const swatchSize = Math.floor(preCalcAvailableWidth / numColumns * 0.7);
+
+      // 计算实际需要的行数
+      const numRows = Math.ceil(colorKeys.length / numColumns);
+
+      // 计算单行高度
+      const statsRowHeight = swatchSize + 8;
+
+      // 标题和页脚高度
+      const titleHeight = 10; // 简化后的标题区域
+      const footerHeight = 40; // 总计部分的高度
+
+      // 计算统计区域的总高度 - 需要包含顶部间距
+      statsHeight = titleHeight + (numRows * statsRowHeight) + footerHeight + (statsPadding * 2) + statsTopMargin;
+    }
+  
+    // 调整画布大小，包含标题栏、坐标轴、统计区域和小红书标识区域（四边都有坐标）
+    let downloadWidth = gridWidth + (axisLabelSize * 2) + extraLeftMargin + extraRightMargin;
+    let downloadHeight = titleBarHeight + gridHeight + (axisLabelSize * 2) + statsHeight + extraTopMargin + extraBottomMargin + xiaohongshuAreaHeight;
+  
+    let downloadCanvas = document.createElement('canvas');
+    downloadCanvas.width = downloadWidth;
+    downloadCanvas.height = downloadHeight;
+    const context = downloadCanvas.getContext('2d');
+    if (!context) {
+      console.error("下载失败: 无法创建临时 Canvas Context。");
+      alert("无法下载图纸。");
+      return;
+    }
+    
+    // 使用非空的context变量
+    let ctx = context;
+    ctx.imageSmoothingEnabled = false;
+  
+    // 设置背景色
+    ctx.fillStyle = '#FFFFFF';
+    ctx.fillRect(0, 0, downloadWidth, downloadHeight);
+
+    // 在左上角绘制简单文字（无条幅）
+    ctx.fillStyle = '#333333';
+    ctx.font = 'bold 56px system-ui, -apple-system, sans-serif';
+    ctx.textAlign = 'left';
+    ctx.textBaseline = 'bottom';
+
+    // 绘制基础标题，如果有作者署名则添加分隔符和署名，后面显示色板颜色数量
+    const baseTitle = '🍉小瓜拼豆生成器';
+    const separator = options.authorName ? ' | ' : '';
+    const authorPart = options.authorName;
+    const colorCountPart = activeBeadPalette.length > 0 ? ` | ${activeBeadPalette.length}色` : '';
+    const fullTitle = baseTitle + separator + authorPart + colorCountPart;
+    ctx.fillText(fullTitle, extraLeftMargin + axisLabelSize, titleBarHeight + extraTopMargin - 2);
+
+    console.log(`Generating download grid image: ${downloadWidth}x${downloadHeight}`);
+    const fontSize = Math.max(8, Math.floor(downloadCellSize * 0.4));
+    
+    // 如果需要，先绘制坐标轴和网格背景
+    if (showCoordinates) {
+      // 使用固定的字体大小，不进行缩放
+      const axisFontSize = Math.max(10, Math.floor(downloadCellSize * 0.5));
+      ctx.font = `bold ${axisFontSize}px sans-serif`;
+
+      // X轴（顶部）数字 - 每个数字在独立的格子内
+      for (let i = 0; i < N; i++) {
+        const cellX = extraLeftMargin + axisLabelSize + (i * downloadCellSize);
+        const cellY = titleBarHeight + extraTopMargin;
+        
+        // 绘制单元格背景（浅蓝色）
+        ctx.fillStyle = '#E3F2FD';
+        ctx.fillRect(cellX, cellY, downloadCellSize, axisLabelSize);
+        
+        // 绘制边框
+        ctx.strokeStyle = '#333333';
+        ctx.lineWidth = 1;
+        ctx.strokeRect(cellX, cellY, downloadCellSize, axisLabelSize);
+        
+        // 绘制数字
+        ctx.fillStyle = '#333333';
+        ctx.textAlign = 'center';
+        ctx.textBaseline = 'middle';
+        ctx.fillText((i + 1).toString(), cellX + downloadCellSize / 2, cellY + axisLabelSize / 2);
+      }
+      
+      // X轴（底部）数字 - 每个数字在独立的格子内
+      for (let i = 0; i < N; i++) {
+        const cellX = extraLeftMargin + axisLabelSize + (i * downloadCellSize);
+        const cellY = titleBarHeight + extraTopMargin + axisLabelSize + gridHeight;
+        
+        // 绘制单元格背景（浅蓝色）
+        ctx.fillStyle = '#E3F2FD';
+        ctx.fillRect(cellX, cellY, downloadCellSize, axisLabelSize);
+        
+        // 绘制边框
+        ctx.strokeStyle = '#333333';
+        ctx.lineWidth = 1;
+        ctx.strokeRect(cellX, cellY, downloadCellSize, axisLabelSize);
+        
+        // 绘制数字
+        ctx.fillStyle = '#333333';
+        ctx.textAlign = 'center';
+        ctx.textBaseline = 'middle';
+        ctx.fillText((i + 1).toString(), cellX + downloadCellSize / 2, cellY + axisLabelSize / 2);
+      }
+      
+      // Y轴（左侧）数字 - 每个数字在独立的格子内
+      for (let j = 0; j < M; j++) {
+        const cellX = extraLeftMargin;
+        const cellY = titleBarHeight + extraTopMargin + axisLabelSize + (j * downloadCellSize);
+        
+        // 绘制单元格背景（浅蓝色）
+        ctx.fillStyle = '#E3F2FD';
+        ctx.fillRect(cellX, cellY, axisLabelSize, downloadCellSize);
+        
+        // 绘制边框
+        ctx.strokeStyle = '#333333';
+        ctx.lineWidth = 1;
+        ctx.strokeRect(cellX, cellY, axisLabelSize, downloadCellSize);
+        
+        // 绘制数字
+        ctx.fillStyle = '#333333';
+        ctx.textAlign = 'center';
+        ctx.textBaseline = 'middle';
+        ctx.fillText((j + 1).toString(), cellX + axisLabelSize / 2, cellY + downloadCellSize / 2);
+      }
+      
+      // Y轴（右侧）数字 - 每个数字在独立的格子内
+      for (let j = 0; j < M; j++) {
+        const cellX = extraLeftMargin + axisLabelSize + gridWidth;
+        const cellY = titleBarHeight + extraTopMargin + axisLabelSize + (j * downloadCellSize);
+        
+        // 绘制单元格背景（浅蓝色）
+        ctx.fillStyle = '#E3F2FD';
+        ctx.fillRect(cellX, cellY, axisLabelSize, downloadCellSize);
+        
+        // 绘制边框
+        ctx.strokeStyle = '#333333';
+        ctx.lineWidth = 1;
+        ctx.strokeRect(cellX, cellY, axisLabelSize, downloadCellSize);
+        
+        // 绘制数字
+        ctx.fillStyle = '#333333';
+        ctx.textAlign = 'center';
+        ctx.textBaseline = 'middle';
+        ctx.fillText((j + 1).toString(), cellX + axisLabelSize / 2, cellY + downloadCellSize / 2);
+      }
+    }
+    
+    // 恢复默认文本对齐和基线，为后续绘制做准备
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+
+    // 设置用于绘制单元格内容的字体
+    ctx.font = `bold ${fontSize}px sans-serif`;
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+
+    // 绘制所有单元格
+    for (let j = 0; j < M; j++) {
+      for (let i = 0; i < N; i++) {
+        const cellData = mappedPixelData[j][i];
+        // 计算绘制位置，考虑额外边距和标题栏高度
+        const drawX = extraLeftMargin + i * downloadCellSize + axisLabelSize;
+        const drawY = titleBarHeight + extraTopMargin + j * downloadCellSize + axisLabelSize;
+
+        // 根据是否是外部背景确定填充颜色
+        if (cellData && !cellData.isExternal) {
+          // 内部单元格：使用珠子颜色填充并绘制文本
+          const cellColor = cellData.color || '#FFFFFF';
+
+          ctx.fillStyle = cellColor;
+          ctx.fillRect(drawX, drawY, downloadCellSize, downloadCellSize);
+
+          if (showCellNumbers) {
+            // 优先使用 cellData.key（色号），如果存在且不是 HEX 格式
+            // 色号格式如 A01, B05, ZG8，不是以 # 开头的 6 位十六进制
+            let cellKey: string;
+            if (cellData.key && !cellData.key.startsWith('#')) {
+              cellKey = cellData.key;
+            } else {
+              // 否则从 HEX 查找色号（fallback）
+              cellKey = getDisplayColorKey(cellData.color || '#FFFFFF', selectedColorSystem);
+            }
+            ctx.fillStyle = getContrastColor(cellColor);
+            ctx.fillText(cellKey, drawX + downloadCellSize / 2, drawY + downloadCellSize / 2);
+          }
+        } else {
+          // 外部背景：填充白色
+          ctx.fillStyle = '#FFFFFF';
+          ctx.fillRect(drawX, drawY, downloadCellSize, downloadCellSize);
+        }
+
+        // 绘制所有单元格的边框
+        ctx.strokeStyle = '#DDDDDD'; // 浅色线条作为基础网格
+        ctx.lineWidth = 0.5;
+        ctx.strokeRect(drawX + 0.5, drawY + 0.5, downloadCellSize, downloadCellSize);
+      }
+    }
+
+    // 如果需要，绘制分隔网格线
+    if (showGrid) {
+      ctx.strokeStyle = gridLineColor; // 使用用户选择的颜色
+      ctx.lineWidth = 1.5;
+      
+      // 绘制垂直分隔线 - 在单元格之间而不是边框上
+      for (let i = gridInterval; i < N; i += gridInterval) {
+        const lineX = extraLeftMargin + i * downloadCellSize + axisLabelSize;
+        ctx.beginPath();
+        ctx.moveTo(lineX, titleBarHeight + extraTopMargin + axisLabelSize);
+        ctx.lineTo(lineX, titleBarHeight + extraTopMargin + axisLabelSize + M * downloadCellSize);
+        ctx.stroke();
+      }
+      
+      // 绘制水平分隔线 - 在单元格之间而不是边框上
+      for (let j = gridInterval; j < M; j += gridInterval) {
+        const lineY = titleBarHeight + extraTopMargin + j * downloadCellSize + axisLabelSize;
+        ctx.beginPath();
+        ctx.moveTo(extraLeftMargin + axisLabelSize, lineY);
+        ctx.lineTo(extraLeftMargin + axisLabelSize + N * downloadCellSize, lineY);
+        ctx.stroke();
+      }
+    }
+
+    // 绘制整个网格区域的主边框
+    ctx.strokeStyle = '#000000'; // 黑色边框
+    ctx.lineWidth = 1.5;
+    ctx.strokeRect(
+      extraLeftMargin + axisLabelSize + 0.5,
+      titleBarHeight + extraTopMargin + axisLabelSize + 0.5,
+      N * downloadCellSize,
+      M * downloadCellSize
+    );
+
+    // 绘制禁止使用水印（位置在底部坐标轴上方）
+    if (options.enableWatermark && options.watermarkOptions) {
+      const { commercial, repost, reprint, modify } = options.watermarkOptions;
+
+      // 收集所有启用的选项名称
+      const enabledOptions: string[] = [];
+      if (commercial) enabledOptions.push('商用');
+      if (repost) enabledOptions.push('二传');
+      if (reprint) enabledOptions.push('转载');
+      if (modify) enabledOptions.push('二改');
+
+      // 如果有启用的选项，绘制水印
+      if (enabledOptions.length > 0) {
+        // 水印文字：禁止 商用/二传/转载/二改
+        const watermarkText = '禁止 ' + enabledOptions.join('/');
+
+        // 设置水印样式：红色半透明，大字体（72px），从上往下斜（45度）
+        ctx.save();
+        ctx.globalAlpha = 0.5; // 半透明
+        ctx.fillStyle = '#FF0000'; // 红色
+        ctx.font = 'bold 72px system-ui, -apple-system, sans-serif';
+        ctx.textAlign = 'center';
+        ctx.textBaseline = 'middle';
+
+        // 水印位置：底部坐标轴上方（网格底部往上50px的位置）
+        const watermarkX = extraLeftMargin + axisLabelSize + (gridWidth / 2);
+        const watermarkY = titleBarHeight + extraTopMargin + axisLabelSize + gridHeight - 50;
+
+        // 旋转水印文字（从上往下斜，45度）
+        ctx.translate(watermarkX, watermarkY);
+        ctx.rotate(Math.PI / 4); // 45度，从上往下斜
+
+        // 绘制水印文字
+        ctx.fillText(watermarkText, 0, 0);
+
+        ctx.restore();
+      }
+    }
+
+
+    // 绘制统计信息
+    if (includeStats && colorCounts) {
+      const colorKeys = Object.keys(colorCounts).sort(sortColorKeys);
+
+      // 增加额外的间距，防止标题文字侵入画布
+      const statsTopMargin = 24; // 增加间距，防止文字侵入画布
+      const statsY = titleBarHeight + extraTopMargin + M * downloadCellSize + (axisLabelSize * 2) + statsPadding + statsTopMargin;
+
+      // 计算统计区域的可用宽度
+      const availableStatsWidth = downloadWidth - (statsPadding * 2);
+
+      // 根据色块大小选择列数
+      const renderNumColumns = options.statsBlockSize === 'large' ? 8 : 16;
+
+      // 计算每个项目所占的宽度
+      const itemWidth = Math.floor(availableStatsWidth / renderNumColumns);
+
+      // 色块大小 - 占项目宽度的40%，确保紧凑
+      const swatchSize = Math.floor(itemWidth * 0.3);
+
+      // 标题区域高度
+      const titleHeight = 8;
+
+      // 行高 - 色块 + 较大间距
+      const statsRowHeight = swatchSize + 20;
+
+      // 色号字体大小 - 占色块的35%
+      const colorKeyFontSize = Math.max(6, Math.floor(swatchSize * 0.35));
+      // 数量字体大小 - 比色号稍大
+      const countFontSize = Math.max(8, Math.floor(swatchSize * 0.4));
+
+      // 绘制每行统计信息
+      colorKeys.forEach((key, index) => {
+        // 计算当前项目应该在哪一行和哪一列
+        const rowIndex = Math.floor(index / renderNumColumns);
+        const colIndex = index % renderNumColumns;
+
+        // 计算当前项目的X起始位置
+        const itemX = statsPadding + (colIndex * itemWidth);
+
+        // 计算当前行的Y位置
+        const rowY = statsY + titleHeight + (rowIndex * statsRowHeight) + (swatchSize / 2);
+
+        const cellData = colorCounts[key];
+        // 如果 key 不是 HEX 格式（色号），直接使用 key；否则从 HEX 查找
+        const colorKey = key.startsWith('#') 
+          ? getColorKeyByHex(cellData.color, selectedColorSystem) 
+          : key;
+
+        // 色块位置
+        const swatchX = itemX;
+        const swatchY = rowY - (swatchSize / 2);
+        const cornerRadius = Math.max(3, Math.floor(swatchSize * 0.2)); // 大圆角
+
+        // 1. 先绘制阴影（底部和右侧的柔和投影）
+        ctx.save();
+        ctx.shadowColor = 'rgba(0, 0, 0, 0.15)';
+        ctx.shadowBlur = 3;
+        ctx.shadowOffsetX = 1;
+        ctx.shadowOffsetY = 1;
+        ctx.fillStyle = cellData.color;
+        ctx.beginPath();
+        ctx.roundRect(swatchX, swatchY, swatchSize, swatchSize, cornerRadius);
+        ctx.fill();
+        ctx.restore();
+
+        // 2. 在色块内绘制色号（根据背景色决定文字颜色）
+        const rgb = hexToRgb(cellData.color);
+        const isLightColor = rgb ? (rgb.r * 299 + rgb.g * 587 + rgb.b * 114) / 1000 > 128 : false;
+        ctx.fillStyle = isLightColor ? '#000000' : '#FFFFFF';
+        ctx.font = `bold ${colorKeyFontSize}px sans-serif`;
+        ctx.textAlign = 'center';
+        ctx.textBaseline = 'middle';
+        ctx.fillText(colorKey, swatchX + swatchSize / 2, rowY);
+
+        // 3. 绘制数量 - 紧靠色块右侧
+        ctx.fillStyle = '#333333';
+        ctx.font = `${countFontSize}px sans-serif`;
+        ctx.textAlign = 'left';
+        ctx.textBaseline = 'middle';
+        const countText = `x${cellData.count}`;
+        ctx.fillText(countText, swatchX + swatchSize + 2, rowY);
+      });
+
+      // 计算实际需要的行数
+      const numRows = Math.ceil(colorKeys.length / renderNumColumns);
+
+      // 绘制总量
+      const totalY = statsY + titleHeight + (numRows * statsRowHeight) + 10;
+      ctx.font = `bold ${statsFontSize}px sans-serif`;
+      ctx.textAlign = 'right';
+      ctx.fillText(`总计: ${totalBeadCount} 颗`, downloadWidth - statsPadding, totalY);
+
+      // 更新统计区域高度的计算 - 需要包含新增的顶部间距
+      const footerHeight = 30; // 总计部分高度
+      statsHeight = titleHeight + (numRows * statsRowHeight) + footerHeight + (statsPadding * 2) + statsTopMargin;
+    }
+
+    // 重新计算画布高度并调整
+    if (includeStats && colorCounts) {
+      // 调整画布大小，包含计算后的统计区域和小红书标识区域
+      const newDownloadHeight = titleBarHeight + extraTopMargin + M * downloadCellSize + (axisLabelSize * 2) + statsHeight + extraBottomMargin + xiaohongshuAreaHeight;
+      
+      if (downloadHeight !== newDownloadHeight) {
+        // 如果高度变化了，需要创建新的画布并复制当前内容
+        const newCanvas = document.createElement('canvas');
+        newCanvas.width = downloadWidth;
+        newCanvas.height = newDownloadHeight;
+        const newContext = newCanvas.getContext('2d');
+        
+        if (newContext) {
+          // 复制原画布内容
+          newContext.drawImage(downloadCanvas, 0, 0);
+          
+          // 更新画布和上下文引用
+          downloadCanvas = newCanvas;
+          ctx = newContext;
+          ctx.imageSmoothingEnabled = false;
+          
+          // 更新高度
+          downloadHeight = newDownloadHeight;
+        }
+      }
+    }
+
+    // iOS 和安卓统一使用相同的清晰度，不再对 iOS canvas 进行缩放
+    // 移除了 iOS 设备 canvas 缩放的限制逻辑
+
+    try {
+      // 统一使用 dataURL 方式下载（iOS和安卓一致，百度浏览器可直接保存到相册）
+      const dataURL = downloadCanvas.toDataURL('image/png');
+      const link = document.createElement('a');
+      // 文件名格式：色号-尺寸
+      link.download = `${selectedColorSystem}-${N}x${M}.png`;
+      link.href = dataURL;
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+      console.log("图纸下载已触发");
+      
+      // 如果启用了CSV导出，同时导出CSV文件
+      if (options.exportCsv) {
+        exportCsvData({
+          mappedPixelData,
+          gridDimensions,
+          selectedColorSystem
+        });
+      }
+    } catch (e) {
+      console.error("下载图纸失败:", e);
+    }
+  };
+
+  // 异步执行下载，确保UI能及时更新（弹窗能关闭）
+  setTimeout(() => {
+    processDownload();
+  }, 0);
+}
+// cache bust: 1773860766

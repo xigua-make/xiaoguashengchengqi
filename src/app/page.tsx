@@ -1,0 +1,466 @@
+'use client';
+
+import React, { useState, useRef, useEffect } from 'react';
+import { CheckCircle2, Import, Play, ArrowLeftRight, X } from 'lucide-react';
+import Script from 'next/script';
+import InstallPWA from '../components/InstallPWA';
+import ActivationModal from '../components/ActivationModal';
+import { useActivation } from '../hooks/useActivation';
+
+// 是否启用激活验证
+const ENABLE_ACTIVATION = true;
+
+// 格式化剩余时间
+function formatRemainingTime(expiresAt: string | null, durationType: string | null): string {
+  // 永久类型直接返回
+  if (durationType === 'permanent') return '永久有效';
+  
+  if (!expiresAt) return '永久有效';
+  
+  const date = new Date(expiresAt);
+  const now = new Date();
+  const diffMs = date.getTime() - now.getTime();
+  
+  // 已到期或过期
+  if (diffMs <= 0) {
+    return '已到期';
+  }
+  
+  // 30秒测试码显示秒数
+  if (durationType === '30s') {
+    const diffSeconds = Math.max(0, Math.floor(diffMs / 1000));
+    return `剩余 ${diffSeconds}秒`;
+  }
+  
+  const diffDays = Math.max(0, Math.floor(diffMs / (1000 * 60 * 60 * 24)));
+  const diffHours = Math.max(0, Math.floor((diffMs % (1000 * 60 * 60 * 24)) / (1000 * 60 * 60)));
+  const diffMinutes = Math.max(0, Math.floor((diffMs % (1000 * 60 * 60)) / (1000 * 60)));
+  
+  if (diffDays > 0) {
+    return `剩余 ${diffDays}天${diffHours > 0 ? diffHours + '小时' : ''}`;
+  } else if (diffHours > 0) {
+    return `剩余 ${diffHours}小时${diffMinutes > 0 ? diffMinutes + '分钟' : ''}`;
+  } else {
+    return `剩余 ${diffMinutes}分钟`;
+  }
+}
+
+// Hero 区块 - 全新设计
+function Hero({ handleStartCreate, isActivated, isVerifying, expiresAt, durationType }: { 
+  handleStartCreate: () => void; 
+  isActivated: boolean; 
+  isVerifying: boolean;
+  expiresAt: string | null;
+  durationType: string | null;
+}) {
+  const [showAgentModal, setShowAgentModal] = useState(false);
+  // 实时剩余时间状态
+  const [remainingTimeText, setRemainingTimeText] = useState('');
+
+  // 实时更新剩余时间
+  useEffect(() => {
+    if (!isActivated) {
+      setRemainingTimeText('');
+      return;
+    }
+
+    // 永久类型直接显示
+    if (durationType === 'permanent') {
+      setRemainingTimeText('永久有效');
+      return;
+    }
+
+    // 限时类型需要 expiresAt
+    if (expiresAt === null) {
+      setRemainingTimeText('');
+      return;
+    }
+
+    const updateRemainingTime = () => {
+      setRemainingTimeText(formatRemainingTime(expiresAt, durationType));
+    };
+
+    // 立即执行一次
+    updateRemainingTime();
+
+    // 每秒更新
+    const interval = setInterval(updateRemainingTime, 1000);
+
+    return () => clearInterval(interval);
+  }, [isActivated, expiresAt, durationType]);
+
+  return (
+    <>
+      {/* 主Hero区域 - 大气渐变背景 */}
+      <div className="relative overflow-hidden rounded-2xl sm:rounded-[28px] bg-gradient-to-br from-slate-900 via-slate-800 to-slate-900 px-4 py-10 sm:px-8 sm:py-16 lg:py-20 text-center">
+        {/* 装饰元素 */}
+        <div className="absolute top-0 left-1/4 w-64 h-64 sm:w-96 sm:h-96 bg-blue-500/20 rounded-full blur-[80px] sm:blur-[120px]" />
+        <div className="absolute bottom-0 right-1/4 w-64 h-64 sm:w-96 sm:h-96 bg-purple-500/20 rounded-full blur-[80px] sm:blur-[120px]" />
+        
+        <div className="relative mx-auto max-w-md px-2">
+          {/* Logo区 */}
+          <div className="mb-6 sm:mb-8">
+            <span className="text-6xl sm:text-7xl lg:text-8xl">🍉</span>
+            <h1 className="mt-3 sm:mt-4 text-3xl sm:text-4xl lg:text-5xl font-black text-white tracking-tight">
+              小瓜拼豆
+            </h1>
+            <p className="mt-2 sm:mt-3 text-sm sm:text-base text-slate-300">
+              让图片一键变成拼豆图纸
+            </p>
+          </div>
+
+          {/* 代理按钮 - 最上面 */}
+          <button
+            onClick={() => setShowAgentModal(true)}
+            className="mb-4 w-full rounded-full border border-blue-500/50 bg-blue-500/10 backdrop-blur-sm px-5 py-2.5 text-sm text-blue-300 transition-all hover:border-blue-400 hover:bg-blue-500/20 hover:text-blue-200"
+          >
+            拼豆图纸生成器代理点这
+          </button>
+
+          {/* 主按钮 - 渐变橙色 */}
+          <button
+            onClick={handleStartCreate}
+            className="w-full py-3.5 sm:py-4 rounded-full bg-gradient-to-r from-orange-500 to-amber-500 text-white font-semibold text-base sm:text-lg shadow-lg shadow-orange-500/30 transition-all hover:shadow-xl hover:shadow-orange-500/40 active:scale-[0.98]"
+          >
+            点击开始创作
+          </button>
+        </div>
+      </div>
+
+      {/* 步骤卡片区域 - 简洁现代风格 */}
+      <div className="mt-4 grid grid-cols-1 sm:grid-cols-3 gap-3 sm:gap-4">
+        {[
+          { num: '01', title: '上传原图', desc: '支持多种图片格式', color: 'from-blue-500 to-cyan-500' },
+          { num: '02', title: '自动生成', desc: 'AI智能像素化处理', color: 'from-purple-500 to-pink-500' },
+          { num: '03', title: '精修导出', desc: '手动调整后导出图纸', color: 'from-amber-500 to-orange-500' },
+        ].map((step, i) => (
+          <div
+            key={i}
+            className="group relative overflow-hidden rounded-2xl bg-white p-5 sm:p-6 shadow-sm border border-slate-100 hover:border-slate-200 hover:shadow-md transition-all"
+          >
+            <div className={`absolute top-0 right-0 w-24 h-24 bg-gradient-to-br ${step.color} opacity-10 rounded-full blur-2xl group-hover:opacity-20 transition-opacity`} />
+            <div className="relative">
+              <span className={`inline-block text-3xl sm:text-4xl font-black bg-gradient-to-r ${step.color} bg-clip-text text-transparent`}>
+                {step.num}
+              </span>
+              <h3 className="mt-2 text-base sm:text-lg font-bold text-slate-800">{step.title}</h3>
+              <p className="mt-1 text-xs sm:text-sm text-slate-500">{step.desc}</p>
+            </div>
+          </div>
+        ))}
+      </div>
+
+      {/* 代理弹窗 */}
+      {showAgentModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm p-3">
+          <div className="relative w-full max-w-xs sm:max-w-md max-h-[85vh] overflow-y-auto rounded-2xl sm:rounded-3xl bg-white shadow-2xl">
+            {/* 头部渐变装饰 */}
+            <div className="h-1 sm:h-2 bg-gradient-to-r from-orange-400 to-amber-400" />
+            
+            {/* 关闭按钮 */}
+            <button
+              onClick={() => setShowAgentModal(false)}
+              className="absolute right-2 top-3 sm:right-4 sm:top-6 rounded-full p-1.5 sm:p-2 text-slate-400 transition-colors hover:bg-slate-100 hover:text-slate-600 z-10"
+            >
+              <X className="h-4 w-4" />
+            </button>
+
+            {/* 内容 */}
+            <div className="p-4 sm:p-6">
+              <div className="mb-3 sm:mb-5 flex items-center gap-2">
+                <span className="text-2xl sm:text-4xl">🍉</span>
+                <div>
+                  <h2 className="text-base sm:text-xl font-bold text-slate-900">小瓜生成器</h2>
+                  <p className="text-xs sm:text-sm font-medium text-orange-600">现面向大众广招代理</p>
+                </div>
+              </div>
+
+              {/* 代理说明 */}
+              <div className="space-y-2 sm:space-y-3">
+                <div className="flex gap-2">
+                  <span className="flex h-4 w-4 sm:h-5 sm:w-5 shrink-0 items-center justify-center rounded-full bg-blue-100 text-xs font-bold text-blue-600">1</span>
+                  <p className="text-xs text-slate-600 leading-relaxed">生成器是我们精心制作半年左右的产品，一直在持续优化更新</p>
+                </div>
+                <div className="flex gap-2">
+                  <span className="flex h-4 w-4 sm:h-5 sm:w-5 shrink-0 items-center justify-center rounded-full bg-blue-100 text-xs font-bold text-blue-600">2</span>
+                  <p className="text-xs text-slate-600 leading-relaxed">全程架构逻辑均为我们自己研究，非其它家全部偷盗开源产品的拿来去卖，本来就是免费的东西。你改了一下界面也改变不了她是盗版的事实</p>
+                </div>
+                <div className="flex gap-2">
+                  <span className="flex h-4 w-4 sm:h-5 sm:w-5 shrink-0 items-center justify-center rounded-full bg-blue-100 text-xs font-bold text-blue-600">3</span>
+                  <p className="text-xs text-slate-600 leading-relaxed">我们的服务器均为自行开发，非常安全，只面向我们的顾客进行开放，其余的正常互联网用户是进入不了的</p>
+                </div>
+                <div className="flex gap-2">
+                  <span className="flex h-4 w-4 sm:h-5 sm:w-5 shrink-0 items-center justify-center rounded-full bg-blue-100 text-xs font-bold text-blue-600">4</span>
+                  <p className="text-xs text-slate-600 leading-relaxed">我们的产品全国都可使用，国外也可以！！！这是其他家做不到的！！！他们只能国内用，我们的境外不管那个国家都可进行使用，可以拿去挣美刀！！！跨境我是没研究明白，大家有会卖的可以卖</p>
+                </div>
+              </div>
+
+              {/* 联系方式 */}
+              <div className="mt-4 sm:mt-5 rounded-xl bg-slate-900 p-3 sm:p-4 text-center text-white">
+                <p className="text-xs sm:text-sm font-bold">代理联系</p>
+                <p className="text-base sm:text-lg font-bold mt-1">🌏：wifi12310s</p>
+              </div>
+
+              {/* 注意提示 */}
+              <div className="mt-3 sm:mt-4 rounded-xl bg-red-50 p-2.5 sm:p-3 text-center">
+                <p className="text-xs font-medium text-red-700">
+                  注意：不要在平台上讲加你了等等相关话术
+                </p>
+                <p className="mt-0.5 text-xs text-red-600">
+                  此类问题一概不回
+                </p>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+    </>
+  );
+}
+
+// 对比区块
+function CompareBlock() {
+  const [slider, setSlider] = useState(50);
+  const [imageSize, setImageSize] = useState({ width: 0, height: 0 });
+  const [fitSize, setFitSize] = useState({ width: 0, height: 0, offsetX: 0, offsetY: 0 });
+  const containerRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    const img = new Image();
+    img.onload = () => {
+      setImageSize({ width: img.naturalWidth, height: img.naturalHeight });
+    };
+    img.src = '/demo-original.png';
+  }, []);
+
+  useEffect(() => {
+    if (!containerRef.current || !imageSize.width) return;
+
+    const updateFitSize = () => {
+      if (!containerRef.current) return;
+      const container = containerRef.current;
+      const imgRatio = imageSize.width / imageSize.height;
+      const containerRatio = container.offsetWidth / container.offsetHeight;
+      let fitWidth, fitHeight, offsetX, offsetY;
+
+      if (imgRatio > containerRatio) {
+        fitWidth = container.offsetWidth;
+        fitHeight = container.offsetWidth / imgRatio;
+        offsetX = 0;
+        offsetY = (container.offsetHeight - fitHeight) / 2;
+      } else {
+        fitHeight = container.offsetHeight;
+        fitWidth = container.offsetHeight * imgRatio;
+        offsetX = (container.offsetWidth - fitWidth) / 2;
+        offsetY = 0;
+      }
+
+      setFitSize({ width: fitWidth, height: fitHeight, offsetX, offsetY });
+    };
+
+    updateFitSize();
+    window.addEventListener('resize', updateFitSize);
+    return () => window.removeEventListener('resize', updateFitSize);
+  }, [imageSize]);
+
+  const handleCompareClick = (e: React.MouseEvent) => {
+    if (!containerRef.current) return;
+    const rect = containerRef.current.getBoundingClientRect();
+    const x = e.clientX - rect.left;
+    const percentage = Math.max(0, Math.min(100, (x / rect.width) * 100));
+    setSlider(percentage);
+  };
+
+  return (
+    <div className="overflow-hidden rounded-2xl sm:rounded-3xl bg-gradient-to-br from-slate-50 to-slate-100/50 px-4 py-6 sm:px-6 sm:py-8 lg:px-8 lg:py-10 border border-slate-200/50">
+      <div className="mb-5 sm:mb-6 text-center">
+        <div className="mb-3 sm:mb-4 inline-flex items-center gap-2 rounded-full bg-white px-3 py-1.5 sm:px-4 sm:py-2 text-xs sm:text-sm font-medium text-slate-600 shadow-sm border border-slate-200/50">
+          <ArrowLeftRight className="h-3 w-3 sm:h-4 sm:w-4 text-blue-500" />
+          转换效果
+        </div>
+        <h2 className="text-lg sm:text-2xl lg:text-3xl font-black text-slate-900 tracking-tight">
+          拖动滑块，实时对比效果
+        </h2>
+        <p className="mx-auto mt-2 sm:mt-3 max-w-2xl text-xs sm:text-sm text-slate-500">
+          上传图片后，自动生成拼豆图纸
+        </p>
+      </div>
+
+      <div className="mx-auto max-w-4xl">
+        <div className="relative overflow-hidden rounded-xl sm:rounded-2xl border border-white/80 bg-white shadow-lg sm:shadow-xl">
+          <div ref={containerRef} className="relative h-[180px] xs:h-[220px] sm:h-[280px] md:h-[360px] lg:h-[440px]">
+            {imageSize.width > 0 && (
+              <>
+                {/* 原图 */}
+                <img
+                  src="/demo-original.png"
+                  alt="原图"
+                  className="absolute top-0 left-0 w-full h-full object-contain"
+                />
+
+                {/* 拼豆图纸 - 使用 clip-path 裁剪 */}
+                <img
+                  src="/demo-pixelated.png"
+                  alt="拼豆图纸"
+                  className="absolute top-0 left-0 w-full h-full object-contain"
+                  style={{ clipPath: `inset(0 0 0 ${slider}%)` }}
+                />
+
+                {/* 分割线 */}
+                <div
+                  className="pointer-events-none absolute inset-y-0 z-20 w-1 bg-white shadow-lg"
+                  style={{ left: `calc(${slider}% - 2px)` }}
+                >
+                  <div className="absolute left-1/2 top-1/2 flex h-8 w-8 sm:h-10 sm:w-10 -translate-x-1/2 -translate-y-1/2 items-center justify-center rounded-full bg-white shadow-lg text-slate-500">
+                    <ArrowLeftRight className="h-4 w-4 sm:h-5 sm:w-5" />
+                  </div>
+                </div>
+
+                {/* 滑块 */}
+                <input
+                  type="range"
+                  min={0}
+                  max={100}
+                  value={slider}
+                  onChange={(e) => setSlider(Number(e.target.value))}
+                  className="absolute inset-0 z-30 h-full w-full cursor-ew-resize opacity-0"
+                  aria-label="拖动滑块对比原图和拼豆图纸"
+                />
+
+                {/* 标签 */}
+                <div className="pointer-events-none absolute left-3 top-3 rounded-full bg-black/70 px-3 py-1.5 text-xs font-medium text-white backdrop-blur-sm">
+                  原图
+                </div>
+                <div className="pointer-events-none absolute right-3 top-3 rounded-full bg-black/70 px-3 py-1.5 text-xs font-medium text-white backdrop-blur-sm">
+                  拼豆图纸
+                </div>
+              </>
+            )}
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// 视频展示区块
+function VideoShowcase() {
+  const [videoVersion, setVideoVersion] = useState<'desktop' | 'mobile'>('desktop');
+  
+  const desktopVideo = 'BV1BCDsBoE7U';
+  const mobileVideo = 'BV1BkDsBtEWP';
+
+  return (
+    <div className="overflow-hidden rounded-2xl sm:rounded-3xl bg-white px-4 py-5 sm:px-6 sm:py-7 lg:px-8 lg:py-8 border border-slate-200/50 shadow-sm">
+      <div className="mb-4 sm:mb-6 text-center">
+        <div className="mb-3 sm:mb-4 inline-flex items-center gap-2 rounded-full bg-slate-100 px-3 py-1.5 sm:px-4 sm:py-2 text-xs sm:text-sm font-medium text-slate-600">
+          <Play className="h-3 w-3 sm:h-4 sm:w-4 text-purple-500 fill-current" />
+          功能演示
+        </div>
+        <h2 className="text-lg sm:text-2xl lg:text-3xl font-black text-slate-900 tracking-tight">
+          看看实际效果
+        </h2>
+      </div>
+
+      {/* 切换按钮 */}
+      <div className="mb-4 sm:mb-5 flex justify-center gap-2">
+        <button
+          onClick={() => setVideoVersion('desktop')}
+          className={`rounded-full px-3 py-2 sm:px-5 sm:py-2.5 text-xs sm:text-sm font-medium transition-all ${
+            videoVersion === 'desktop'
+              ? 'bg-slate-900 text-white shadow-lg'
+              : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
+          }`}
+        >
+          电脑版教程
+        </button>
+        <button
+          onClick={() => setVideoVersion('mobile')}
+          className={`rounded-full px-3 py-2 sm:px-5 sm:py-2.5 text-xs sm:text-sm font-medium transition-all ${
+            videoVersion === 'mobile'
+              ? 'bg-slate-900 text-white shadow-lg'
+              : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
+          }`}
+        >
+          手机版教程
+        </button>
+      </div>
+
+      <div className="mx-auto max-w-4xl overflow-hidden rounded-xl sm:rounded-2xl border border-slate-200 bg-slate-50 shadow-inner">
+        <div className="relative w-full pt-[56.25%]">
+          <iframe
+            src={`//player.bilibili.com/player.html?bvid=${videoVersion === 'desktop' ? desktopVideo : mobileVideo}&page=1`}
+            scrolling="no"
+            border="0"
+            frameBorder="no"
+            framespacing="0"
+            allowFullScreen={true}
+            className="absolute top-0 left-0 w-full h-full"
+          />
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// 首页组件
+export default function Home() {
+  const activation = useActivation();
+  const [showActivationModal, setShowActivationModal] = useState(false);
+  const [expiredMessage, setExpiredMessage] = useState('');
+  const [isVerifying, setIsVerifying] = useState(false);
+
+  const handleStartCreate = () => {
+    window.location.href = '/create';
+  };
+
+  return (
+    <div className="min-h-screen bg-slate-100 px-3 py-4 sm:px-5 sm:py-6 lg:px-8 lg:py-8">
+      <div className="mx-auto max-w-5xl space-y-4 sm:space-y-5 lg:space-y-6">
+        <Hero 
+          handleStartCreate={handleStartCreate} 
+          isActivated={activation.isActivated} 
+          isVerifying={isVerifying}
+          expiresAt={activation.expiresAt}
+          durationType={activation.durationType}
+        />
+        <CompareBlock />
+        <VideoShowcase />
+      </div>
+
+      {showActivationModal && (
+        <ActivationModal
+          isOpen={showActivationModal}
+          onClose={() => {
+            setShowActivationModal(false);
+            setExpiredMessage('');
+          }}
+          onActivate={async (code: string) => {
+            const result = await activation.activate(code);
+            return result;
+          }}
+          expiredMessage={expiredMessage}
+        />
+      )}
+
+      <InstallPWA />
+
+      <Script
+        src="https://pagead2.googlesyndication.com/pagead/js/adsbygoogle.js?client=ca-pub-7207313144293144"
+        crossOrigin="anonymous"
+        strategy="afterInteractive"
+      />
+      <ins
+        className="adsbygoogle block"
+        style={{ display: 'block', textAlign: 'center' }}
+        data-ad-client="ca-pub-7207313144293144"
+        data-ad-slot="1234567890"
+        data-ad-format="auto"
+        data-full-width-responsive="true"
+      />
+      <Script id="ads-init" strategy="afterInteractive">
+        {`(adsbygoogle = window.adsbygoogle || []).push({});`}
+      </Script>
+    </div>
+  );
+}
