@@ -227,12 +227,12 @@ interface PatternResult {
   pixelMatrix?: PixelMatrix;
 }
 const AI_MODES = [
-  { id: 'pixelFullBody', name: '像素全身', desc: '按比例计算图纸，完整造型', image: 'https://code.coze.cn/api/sandbox/coze_coding/file/proxy?expire_time=-1&file_path=assets%2Fimage_20260507142654792.png&nonce=f2f3f6a7-dbd8-47c9-8b8a-a77c71c65014&project_id=7615988843937939496&sign=dd9244a39bf721ec88b4e07add7391cbd7ba7c5f53b68f3dfe624bcbb3a91dd7' },
-  { id: 'pixelPortrait', name: '精致像素图', desc: 'Q版单人，大头小身，适合正方形图纸', image: 'https://code.coze.cn/api/sandbox/coze_coding/file/proxy?expire_time=-1&file_path=assets%2Fimage_20260506225107512.png&nonce=9f97f680-0bcd-4322-aca4-d8a2c29d1184&project_id=7615988843937939496&sign=ebfb4bd28c84f9d4318e5d38757820846501ff0c3641d0f8f219b68f7faffc3f' },
-  { id: 'pixelDoll', name: 'Q版像素大头', desc: 'Q版豆灵风格，适合正方形图纸', image: 'https://code.coze.cn/api/sandbox/coze_coding/file/proxy?expire_time=-1&file_path=assets%2Ffb88af96ad536b3558cb4acb694d87c3_20260507155432935.png&nonce=1b3b28c2-3b46-4742-af47-fd0cbe17437d&project_id=7615988843937939496&sign=e9a72ccaf1a56adea30ecc2f8ebf7e8abbe1852705277cf027b8ddcbe41ff93a' },
-  { id: 'cartoon', name: '动漫像素图', desc: '正方形 52x52，极简大色块', image: 'https://code.coze.cn/api/sandbox/coze_coding/file/proxy?expire_time=-1&file_path=assets%2Fimage_20260507163620879.png&nonce=fe631fdd-cd9b-4928-b9c2-905de817efed&project_id=7615988843937939496&sign=7069b2c5ff2817830b6735a0ba7198c276c8ff9068d778e6fd2fe33a76affca7' },
-  { id: 'cutePet', name: '可爱萌宠风', desc: '正方形 52x52，极简大色块', image: 'https://code.coze.cn/api/sandbox/coze_coding/file/proxy?expire_time=-1&file_path=assets%2Fimage_20260507173319113.png&nonce=88f10e95-6c93-408c-b1f4-92df8e4123c2&project_id=7615988843937939496&sign=4c20fe81274c5a9e0b04df9c538a4bdf427317d845f21264f7aa840e7e131a7a' },
-  { id: 'carStyle', name: '汽车专用风', desc: '正方形 52x52，极简大色块', image: '/preview-car-style.png' }
+  { id: 'pixelFullBody', name: '像素全身', desc: '按比例计算图纸，完整造型', image: '/reference/pixel-fullbody-style.png' },
+  { id: 'pixelPortrait', name: '精致像素图', desc: 'Q版单人，大头小身，适合正方形图纸', image: '/reference/pixel-portrait-style.png' },
+  { id: 'pixelDoll', name: 'Q版像素大头', desc: 'Q版豆灵风格，适合正方形图纸', image: '/reference/pixel-doll-style.png' },
+  { id: 'cartoon', name: '动漫像素图', desc: '正方形 52x52，极简大色块', image: '/reference/pixel-cartoon-style.png' },
+  { id: 'cutePet', name: '可爱萌宠风', desc: '正方形 52x52，极简大色块', image: '/reference/pixel-cutepet-style.png' },
+  { id: 'carStyle', name: '汽车专用风', desc: '正方形 52x52，极简大色块', image: '/reference/pixel-car-style.png' }
 ];
 const BRANDS: BrandType[] = ['Mard', '黄豆豆', 'DoDo', 'CoCo', '漫漫', '小舞', '咪小窝', '卡卡', '优肯', '柿柿', '童趣', '盼盼'];
 // 预设列表（隐藏MARD相关预设）
